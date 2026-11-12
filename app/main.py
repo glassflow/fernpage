@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -12,11 +12,17 @@ from app.sample import seed
 from app.store import Store
 
 STATIC = Path(__file__).parent / "static"
-PRIVATE_HEADERS = {
-    "Cache-Control": "no-store",
-    "X-Robots-Tag": "noindex",
-    "Referrer-Policy": "no-referrer",
-}
+NOT_FOUND_HTML = (
+    "<!doctype html>"
+    '<html lang="en"><head><meta charset="utf-8">'
+    '<meta name="viewport" content="width=device-width, initial-scale=1">'
+    '<meta name="robots" content="noindex">'
+    "<title>Link not found \u00b7 Fernpage</title>"
+    '<link rel="stylesheet" href="/static/style.css"></head>'
+    '<body class="shared"><main>'
+    "<p class=\"empty\">This link doesn't work. It may have been turned off.</p>"
+    "</main></body></html>"
+)
 
 
 class PageIn(BaseModel):
@@ -48,6 +54,15 @@ def create_app(store: Store | None = None) -> FastAPI:
         store = Store(os.getenv("FERNPAGE_DB", "fernpage.db"))
         if store.count() == 0:
             seed(store)
+
+    SHARE_HEADERS = {
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex",
+        "Referrer-Policy": "no-referrer",
+        "Content-Security-Policy": (
+            "default-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'"
+        ),
+    }
 
     app = FastAPI(title="Fernpage")
     app.state.store = store
@@ -105,10 +120,16 @@ def create_app(store: Store | None = None) -> FastAPI:
         page = store.get_shared(token)
         if page is None:
             raise HTTPException(
-                status_code=404, detail="no such shared page", headers=PRIVATE_HEADERS
+                status_code=404, detail="no such shared page", headers=SHARE_HEADERS
             )
-        response.headers.update(PRIVATE_HEADERS)
+        response.headers.update(SHARE_HEADERS)
         return page
+
+    @app.get("/s/{token}", include_in_schema=False)
+    def share_page(token: str):
+        if store.get_shared(token) is None:
+            return HTMLResponse(NOT_FOUND_HTML, status_code=404, headers=SHARE_HEADERS)
+        return FileResponse(STATIC / "share.html", headers=SHARE_HEADERS)
 
     @app.get("/api/search")
     def search(q: str = ""):
