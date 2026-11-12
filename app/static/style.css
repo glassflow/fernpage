@@ -128,6 +128,7 @@ main { padding: 48px 64px; max-width: 860px; width: 100%; }
   min-width: 0;
 }
 .actions { display: flex; gap: 6px; }
+.comment-count { color: var(--muted); }
 .star.on { color: #c9962b; }
 .danger { color: var(--danger); }
 .body {
@@ -174,6 +175,8 @@ button.link {
   color: var(--muted);
 }
 button.link:hover { background: none; color: var(--danger); }
+.thread-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
+.thread-foot .resolve { font-size: 12px; padding: 2px 8px; color: var(--muted); }
 .comment-body { line-height: 1.5; font-size: 15px; }
 .comment-body > :first-child { margin-top: 4px; }
 .comment-body > :last-child { margin-bottom: 0; }
