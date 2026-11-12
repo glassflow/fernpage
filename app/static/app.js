@@ -137,6 +137,45 @@ function when(iso) {
   return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+// unsent reply text by thread id, so a re-render (resolve, delete, a reply elsewhere) keeps it
+const drafts = new Map();
+
+// which comment control has focus, so it can be given back after the lists are rebuilt
+function focusSnapshot() {
+  const el = document.activeElement;
+  if (!el || !el.dataset || !el.dataset.focus || !$("comments").contains(el)) return null;
+  const snap = { key: el.dataset.focus.replace(/^reply-send-/, "reply-") };
+  if (el.tagName === "TEXTAREA") { snap.start = el.selectionStart; snap.end = el.selectionEnd; }
+  return snap;
+}
+
+function restoreFocus(snap) {
+  if (!snap) return;
+  const el = [...$("comments").querySelectorAll("[data-focus]")]
+    .find((x) => x.dataset.focus === snap.key);
+  if (!el) { $("comments").focus({ preventScroll: true }); return; } // e.g. the comment is gone
+  el.focus({ preventScroll: true });
+  // a control inside the closed "resolved" fold cannot take focus: park it on the section
+  if (document.activeElement !== el) { $("comments").focus({ preventScroll: true }); return; }
+  if (snap.start != null) el.setSelectionRange(snap.start, snap.end);
+}
+
+// Run one comment action, then always reload the list: after a failure too, because the screen
+// may be stale (a 404 after a delete in another tab). The error shows only on the page it is for.
+async function act(work, snap = focusSnapshot()) {
+  const pageId = current && current.id;
+  if (!pageId) return false;
+  let failure = null;
+  try {
+    await work();
+  } catch (e) {
+    failure = e;
+  }
+  await loadComments(snap);
+  if (failure && current && current.id === pageId) showCommentError(failure);
+  return !failure;
+}
+
 function commentBody(text) {
   const div = document.createElement("div");
   div.className = "comment-body markdown";
@@ -152,19 +191,22 @@ function commentEl(c) {
   const meta = document.createElement("div");
   meta.className = "meta";
   const who = document.createElement("span");
+  who.id = "who-" + c.id;
   who.textContent = c.author + " · " + when(c.created_at);
   const del = document.createElement("button");
   del.type = "button";
   del.className = "link";
+  del.id = "del-" + c.id;
+  del.dataset.focus = "delete-" + c.id;
+  // name = "Delete" + who and when, read from the span above (no user text goes into an attribute)
+  del.setAttribute("aria-labelledby", del.id + " " + who.id);
   del.textContent = "Delete";
   del.onclick = async () => {
     if (!current || del.disabled) return;
+    const snap = focusSnapshot();
     del.disabled = true;
     try {
-      await api("DELETE", "/api/comments/" + c.id);
-      await loadComments();
-    } catch (e) {
-      showCommentError(e);
+      await act(async () => { await api("DELETE", "/api/comments/" + c.id); }, snap);
     } finally {
       del.disabled = false;
     }
@@ -191,27 +233,38 @@ async function once(form, work) {
 function replyForm(t) {
   const form = document.createElement("form");
   form.className = "reply-form";
+  const hint = document.createElement("span");
+  hint.className = "sr-only";
+  hint.id = "reply-lbl-" + t.id;
+  hint.textContent = "Reply to";
   const box = document.createElement("textarea");
   box.placeholder = "Reply…";
   box.rows = 2;
+  box.dataset.focus = "reply-" + t.id;
+  box.setAttribute("aria-labelledby", hint.id + " who-" + t.id); // "Reply to <author · date>"
+  box.value = drafts.get(t.id) || ""; // an unsent draft survives a re-render
+  box.addEventListener("input", () => {
+    if (box.value) drafts.set(t.id, box.value);
+    else drafts.delete(t.id);
+  });
   const send = document.createElement("button");
   send.type = "submit";
+  send.dataset.focus = "reply-send-" + t.id;
   send.textContent = "Reply";
-  form.append(box, send);
+  form.append(hint, box, send);
   form.addEventListener("submit", (e) => {
     e.preventDefault();
+    const snap = focusSnapshot();
     once(form, async () => {
       const body = box.value;
       if (!body.trim() || !current) return;
       const author = $("author").value.trim();
       setAuthor(author);
-      try {
+      await act(async () => {
         await api("POST", "/api/comments/" + t.id + "/replies", { body, author });
-      } catch (err) {
-        showCommentError(err);
-        return;
-      }
-      await loadComments();
+        // sent: forget the draft, unless more was typed meanwhile
+        if (box.value === body) drafts.delete(t.id);
+      }, snap);
     });
   });
   return form;
@@ -221,15 +274,17 @@ function resolveButton(t) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "resolve";
+  btn.dataset.focus = "resolve-" + t.id;
   btn.textContent = t.resolved ? "Reopen" : "Resolve ✓";
+  btn.setAttribute("aria-label", t.resolved ? "Reopen thread" : "Resolve thread");
   btn.onclick = async () => {
     if (!current || btn.disabled) return;
+    const snap = focusSnapshot();
     btn.disabled = true;
     try {
-      await api("PATCH", "/api/comments/" + t.id, { resolved: !t.resolved });
-      await loadComments();
-    } catch (e) {
-      showCommentError(e);
+      await act(async () => {
+        await api("PATCH", "/api/comments/" + t.id, { resolved: !t.resolved });
+      }, snap);
     } finally {
       btn.disabled = false;
     }
@@ -260,6 +315,8 @@ function showCommentError(e) {
 }
 
 function clearComments() {
+  loadSeq++; // a load still in flight belongs to the page we are leaving
+  drafts.clear();
   $("threads").replaceChildren();
   $("resolved-threads").replaceChildren();
   $("resolved").hidden = true;
@@ -267,27 +324,39 @@ function clearComments() {
   $("comment-count").hidden = true; // never show the previous page's count
 }
 
-async function loadComments() {
+let loadSeq = 0; // the newest load wins: an older answer for the same page is dropped
+
+async function loadComments(snap = null) {
   const pageId = current && current.id;
-  if (!pageId) return;
+  if (!pageId) return false;
+  const seq = ++loadSeq;
   let data;
   try {
     data = await api("GET", "/api/pages/" + pageId + "/comments");
   } catch (e) {
-    if (current && current.id === pageId) showCommentError(e);
-    return;
+    if (seq === loadSeq && current && current.id === pageId) showCommentError(e);
+    return false;
   }
-  if (!current || current.id !== pageId) return; // we have left that page
+  if (seq !== loadSeq || !current || current.id !== pageId) return false; // superseded, or we left
+  // focus now if it is on a comment control; if it fell to the page, where it was at the click
+  const active = document.activeElement;
+  const focus = focusSnapshot() || (active && active !== document.body ? null : snap);
   const openThreads = data.threads.filter((t) => !t.resolved);
   const done = data.threads.filter((t) => t.resolved);
+  const ids = new Set(data.threads.map((t) => t.id));
+  for (const id of [...drafts.keys()]) if (!ids.has(id)) drafts.delete(id); // thread was deleted
   $("threads").replaceChildren(...openThreads.map(threadEl));
   $("resolved-threads").replaceChildren(...done.map(threadEl));
   $("resolved-summary").textContent = done.length + " resolved";
   $("resolved").hidden = done.length === 0;
   // the loaded thread list is the only source of the count
   $("comment-count").textContent = "💬 " + openThreads.length;
+  $("comment-count").setAttribute(
+    "aria-label", openThreads.length + (openThreads.length === 1 ? " open comment" : " open comments"));
   $("comment-count").hidden = openThreads.length === 0;
   $("comments-error").hidden = true;
+  restoreFocus(focus);
+  return true;
 }
 
 // ── search ──
@@ -349,15 +418,11 @@ $("new-comment").addEventListener("submit", (e) => {
     if (!body.trim() || !current) return;
     const author = $("author").value.trim();
     setAuthor(author);
-    try {
+    await act(async () => {
       await api("POST", "/api/pages/" + current.id + "/comments", { body, author });
-    } catch (err) {
-      showCommentError(err);
-      return;
-    }
-    // keep anything typed while the post was in flight
-    if ($("comment-body").value === body) $("comment-body").value = "";
-    await loadComments();
+      // keep anything typed while the post was in flight
+      if ($("comment-body").value === body) $("comment-body").value = "";
+    });
   });
 });
 $("comments").addEventListener("keydown", (e) => {

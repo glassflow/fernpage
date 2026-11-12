@@ -31,7 +31,7 @@
         <button id="icon" class="icon" title="Change icon"></button>
         <input id="title" class="title" placeholder="Untitled">
         <div class="actions">
-          <button id="comment-count" class="comment-count" title="Open comments" hidden></button>
+          <button id="comment-count" class="comment-count" title="Open comments" aria-label="Open comments" hidden></button>
           <button id="favorite" class="star" title="Favourite">☆</button>
           <button id="mode" title="Switch between writing and reading">Edit</button>
           <button id="delete" class="danger" title="Delete page">Delete</button>
@@ -39,13 +39,13 @@
       </header>
       <div id="view" class="markdown"></div>
       <textarea id="body" class="body" hidden placeholder="Write in markdown…"></textarea>
-      <section id="comments" class="comments">
+      <section id="comments" class="comments" tabindex="-1">
         <h2>Comments</h2>
         <div id="threads"></div>
         <p id="comments-error" class="comments-error" hidden></p>
         <form id="new-comment" class="new-comment">
-          <input id="author" placeholder="Your name" maxlength="80" autocomplete="off">
-          <textarea id="comment-body" placeholder="Add a comment… (markdown)"></textarea>
+          <input id="author" aria-label="Your name" placeholder="Your name" maxlength="80" autocomplete="off">
+          <textarea id="comment-body" aria-label="New comment" placeholder="Add a comment… (markdown)"></textarea>
           <button type="submit">Comment</button>
         </form>
         <details id="resolved" hidden>

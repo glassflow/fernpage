@@ -54,7 +54,6 @@ def test_app_js_has_no_dialogs(client):
 def test_app_js_guards_double_submit_and_stale_pages(client):
     js = _app_js(client)
     assert js.count("once(") >= 3  # definition, new-comment form, reply form
-    assert "if (current && current.id === pageId) showCommentError(e)" in js
     assert js.count("clearComments();") >= 2  # on switching pages, and when the new page is set
 
 
@@ -76,3 +75,43 @@ def test_hidden_rule_survives_and_count_sets_no_display(client):
     assert "[hidden] { display: none !important; }" in css
     rule = css.split(".comment-count {")[1].split("}")[0]
     assert "display" not in rule
+
+
+def _fn(js, head):
+    """Source of one top-level function, from its header to the closing brace at column 0."""
+    return js.split(head)[1].split("\n}\n")[0]
+
+
+def test_source_every_comment_action_goes_through_act(client):
+    # Source check only: Delete, Resolve, Reply and a new comment all call act(), and act() reloads
+    # the list after the failure is caught and shows the error only for the page it came from.
+    js = _app_js(client)
+    assert js.count("await act(") >= 4
+    act = _fn(js, "async function act(")
+    assert "catch (e)" in act and "failure = e" in act
+    assert act.index("catch (e)") < act.index("await loadComments(snap)")
+    assert "current.id === pageId) showCommentError(failure)" in act
+    # none of the actions shows an error or reloads on its own any more
+    for head in ("del.onclick = async", "btn.onclick = async"):
+        assert "showCommentError" not in js.split(head)[1].split("};")[0]
+
+
+def test_source_load_is_sequenced_and_the_page_is_checked_twice(client):
+    js = _app_js(client)
+    load = _fn(js, "async function loadComments(")
+    assert "const seq = ++loadSeq" in load
+    # the error path and the success path both drop an answer that is no longer the newest
+    assert load.count("seq === loadSeq") + load.count("seq !== loadSeq") == 2
+    assert "loadSeq++" in _fn(js, "function clearComments()")
+
+
+def test_source_reply_drafts_and_labels(client):
+    js = _app_js(client)
+    reply = _fn(js, "function replyForm(")
+    assert "box.value = drafts.get(t.id)" in reply
+    assert 'addEventListener("input"' in reply and "drafts.set(t.id, box.value)" in reply
+    assert "box.setAttribute(\"aria-labelledby\"" in reply
+    assert 'del.setAttribute("aria-labelledby"' in js
+    assert '"aria-label", openThreads.length' in js
+    html = client.get("/").text
+    assert 'id="author" aria-label=' in html and 'id="comment-body" aria-label=' in html

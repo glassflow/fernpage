@@ -158,6 +158,15 @@ main { padding: 48px 64px; max-width: 860px; width: 100%; }
 
 /* comments */
 .comments { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); }
+#comments:focus { outline: none; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .comments > h2 { font-size: 18px; margin: 0 0 12px; }
 .thread {
   border: 1px solid var(--line);
