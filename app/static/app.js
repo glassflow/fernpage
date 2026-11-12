@@ -79,6 +79,8 @@ async function open(id) {
   $("favorite").textContent = current.favorite ? "★" : "☆";
   $("favorite").classList.toggle("on", current.favorite);
   $("saved").textContent = "Edited " + new Date(current.updated_at).toLocaleString();
+  $("share-panel").hidden = true;
+  showShare();
   $("crumbs").replaceChildren(...trail(current.id).slice(0, -1).flatMap((p) => {
     const a = document.createElement("a");
     a.href = "#" + p.id;
@@ -359,6 +361,75 @@ async function loadComments(snap = null) {
   return true;
 }
 
+// ── sharing ──
+function shareUrl() { return location.origin + "/s/" + current.share_token; }
+
+function showShare() {
+  const on = !!(current && current.share_token);
+  $("share").textContent = on ? "Shared" : "Share";
+  $("share").classList.toggle("on", on);
+  $("share-url").value = on ? shareUrl() : "";
+}
+
+// Record a new token on the page the request was for, and on the open page if it is the same
+// page (it may have been reloaded meanwhile). Returns true when the open page is that page.
+function applyToken(page, token) {
+  page.share_token = token;
+  if (!current || current.id !== page.id) return false;
+  current.share_token = token;
+  return true;
+}
+
+$("share").onclick = async () => {
+  if (!current) return;
+  if (current.share_token) {
+    $("share-panel").hidden = !$("share-panel").hidden;
+    return;
+  }
+  const page = current;
+  const button = $("share");
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    const res = await api("POST", "/api/pages/" + page.id + "/share");
+    if (!applyToken(page, res.token)) return; // we moved to another page: do not show its panel
+    showShare();
+    $("share-panel").hidden = false;
+    $("share-url").select();
+  } finally {
+    button.disabled = false;
+  }
+};
+
+$("copy").onclick = async () => {
+  if (!current || !current.share_token) return;
+  const url = shareUrl();
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    $("share-url").select();
+    document.execCommand("copy");
+  }
+  $("copy").textContent = "Copied";
+  setTimeout(() => { $("copy").textContent = "Copy link"; }, 1500);
+};
+
+$("unshare").onclick = async () => {
+  if (!current) return;
+  const page = current;
+  const button = $("unshare");
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    await api("DELETE", "/api/pages/" + page.id + "/share");
+    if (!applyToken(page, null)) return;
+    $("share-panel").hidden = true;
+    showShare();
+  } finally {
+    button.disabled = false;
+  }
+};
+
 // ── search ──
 let searchTimer = null;
 $("search").addEventListener("input", (e) => {
@@ -399,6 +470,7 @@ $("delete").onclick = async () => {
   current = null;
   location.hash = "";
   $("page").hidden = true;
+  $("share-panel").hidden = true;
   $("empty").hidden = false;
   loadTree();
 };

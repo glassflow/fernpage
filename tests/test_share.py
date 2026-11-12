@@ -390,3 +390,10 @@ def test_migration_error_is_raised_when_the_column_is_still_missing(tmp_path, mo
     patch_connect(monkeypatch, path, alter_error=sqlite3.OperationalError("boom"))
     with pytest.raises(sqlite3.OperationalError, match="boom"):
         Store(path)
+
+
+def test_editor_page_has_the_share_controls(client):
+    res = client.get("/")
+    assert res.status_code == 200
+    for el in ("share", "share-panel", "copy", "unshare"):
+        assert f'id="{el}"' in res.text
