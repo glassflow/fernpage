@@ -157,7 +157,7 @@ main { padding: 48px 64px; max-width: 860px; width: 100%; }
 
 /* comments */
 .comments { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); }
-.comments h2 { font-size: 18px; margin: 0 0 12px; }
+.comments > h2 { font-size: 18px; margin: 0 0 12px; }
 .thread {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -165,11 +165,30 @@ main { padding: 48px 64px; max-width: 860px; width: 100%; }
   margin-bottom: 12px;
 }
 .comment + .comment { margin-top: 10px; }
-.meta { font-size: 12px; color: var(--muted); }
+.meta { display: flex; align-items: baseline; font-size: 12px; color: var(--muted); }
+button.link {
+  margin-left: auto;
+  border: none;
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+button.link:hover { background: none; color: var(--danger); }
 .comment-body { line-height: 1.5; font-size: 15px; }
 .comment-body > :first-child { margin-top: 4px; }
 .comment-body > :last-child { margin-bottom: 0; }
 .replies { margin: 10px 0 0 12px; padding-left: 12px; border-left: 2px solid var(--line); }
+.reply-form { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin: 10px 0 0 12px; }
+.reply-form textarea {
+  font: inherit;
+  font-size: 14px;
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: inherit;
+}
 .new-comment { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; margin-top: 16px; }
 .new-comment input, .new-comment textarea {
   font: inherit;
