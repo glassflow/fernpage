@@ -1,3 +1,5 @@
+[hidden] { display: none !important; }
+
 :root {
   --bg: #fbfaf7;
   --side: #f2f0ea;
@@ -152,6 +154,37 @@ main { padding: 48px 64px; max-width: 860px; width: 100%; }
 .markdown a { color: var(--accent); }
 .markdown li.task { list-style: none; margin-left: -22px; }
 .markdown li.task.done { color: var(--muted); text-decoration: line-through; }
+
+/* comments */
+.comments { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); }
+.comments h2 { font-size: 18px; margin: 0 0 12px; }
+.thread {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+.comment + .comment { margin-top: 10px; }
+.meta { font-size: 12px; color: var(--muted); }
+.comment-body { line-height: 1.5; font-size: 15px; }
+.comment-body > :first-child { margin-top: 4px; }
+.comment-body > :last-child { margin-bottom: 0; }
+.replies { margin: 10px 0 0 12px; padding-left: 12px; border-left: 2px solid var(--line); }
+.new-comment { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; margin-top: 16px; }
+.new-comment input, .new-comment textarea {
+  font: inherit;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: inherit;
+}
+.new-comment input { max-width: 260px; }
+.new-comment textarea { height: calc(3 * 1.5em + 14px); resize: vertical; }
+.comments-error { color: var(--danger); font-size: 13px; margin: 8px 0 0; }
+#resolved { margin-top: 16px; }
+#resolved summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-bottom: 8px; }
 
 @media (max-width: 720px) {
   body { grid-template-columns: 1fr; }

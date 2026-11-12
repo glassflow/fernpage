@@ -38,6 +38,20 @@
       </header>
       <div id="view" class="markdown"></div>
       <textarea id="body" class="body" hidden placeholder="Write in markdown…"></textarea>
+      <section id="comments" class="comments">
+        <h2>Comments</h2>
+        <div id="threads"></div>
+        <p id="comments-error" class="comments-error" hidden></p>
+        <form id="new-comment" class="new-comment">
+          <input id="author" placeholder="Your name" maxlength="80" autocomplete="off">
+          <textarea id="comment-body" placeholder="Add a comment… (markdown)"></textarea>
+          <button type="submit">Comment</button>
+        </form>
+        <details id="resolved" hidden>
+          <summary id="resolved-summary"></summary>
+          <div id="resolved-threads"></div>
+        </details>
+      </section>
       <footer id="saved" class="saved"></footer>
     </article>
   </main>
