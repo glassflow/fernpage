@@ -29,6 +29,15 @@ class PagePatch(BaseModel):
     parent_id: int | None = None
 
 
+class CommentIn(BaseModel):
+    body: str
+    author: str = ""
+
+
+class ResolvePatch(BaseModel):
+    resolved: bool
+
+
 def create_app(store: Store | None = None) -> FastAPI:
     if store is None:
         store = Store(os.getenv("FERNPAGE_DB", "fernpage.db"))
@@ -77,6 +86,45 @@ def create_app(store: Store | None = None) -> FastAPI:
     @app.get("/api/search")
     def search(q: str = ""):
         return {"results": store.search(q) if q.strip() else []}
+
+    @app.get("/api/pages/{page_id}/comments")
+    def list_comments(page_id: int):
+        page_or_404(page_id)
+        return {"threads": store.comments(page_id)}
+
+    @app.post("/api/pages/{page_id}/comments", status_code=201)
+    def add_comment(page_id: int, body: CommentIn):
+        page_or_404(page_id)
+        try:
+            return store.add_comment(page_id, body.body, body.author)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="no such page") from None
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.post("/api/comments/{comment_id}/replies", status_code=201)
+    def add_reply(comment_id: int, body: CommentIn):
+        try:
+            return store.add_reply(comment_id, body.body, body.author)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="no such comment") from None
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.patch("/api/comments/{comment_id}")
+    def resolve_comment(comment_id: int, body: ResolvePatch):
+        try:
+            thread = store.set_resolved(comment_id, body.resolved)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        if thread is None:
+            raise HTTPException(status_code=404, detail="no such comment")
+        return thread
+
+    @app.delete("/api/comments/{comment_id}", status_code=204)
+    def delete_comment(comment_id: int):
+        if not store.delete_comment(comment_id):
+            raise HTTPException(status_code=404, detail="no such comment")
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
