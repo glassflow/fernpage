@@ -1,5 +1,6 @@
 """Pages in SQLite. A page has a title, a markdown body, an optional parent and a favourite flag."""
 
+import secrets
 import sqlite3
 import threading
 from datetime import UTC, datetime
@@ -14,7 +15,8 @@ CREATE TABLE IF NOT EXISTS pages (
     favorite INTEGER NOT NULL DEFAULT 0,
     position INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    share_token TEXT
 );
 CREATE INDEX IF NOT EXISTS pages_parent ON pages(parent_id);
 CREATE TABLE IF NOT EXISTS comments (
@@ -77,6 +79,13 @@ class Store:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys = ON")
         self._db.executescript(SCHEMA)
+        cols = [r[1] for r in self._db.execute("PRAGMA table_info(pages)")]
+        if "share_token" not in cols:
+            self._db.execute("ALTER TABLE pages ADD COLUMN share_token TEXT")
+        self._db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS pages_share_token ON pages(share_token)"
+        )
+        self._db.commit()
         self._lock = threading.Lock()
 
     @staticmethod
@@ -147,6 +156,34 @@ class Store:
             cur = self._db.execute("DELETE FROM pages WHERE id = ?", (page_id,))
             self._db.commit()
         return cur.rowcount > 0
+
+    def share(self, page_id: int) -> str | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT share_token FROM pages WHERE id = ?", (page_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            if row["share_token"]:
+                return row["share_token"]
+            token = secrets.token_urlsafe(16)
+            self._db.execute("UPDATE pages SET share_token = ? WHERE id = ?", (token, page_id))
+            self._db.commit()
+            return token
+
+    def unshare(self, page_id: int) -> bool:
+        with self._lock:
+            cur = self._db.execute("UPDATE pages SET share_token = NULL WHERE id = ?", (page_id,))
+            self._db.commit()
+        return cur.rowcount > 0
+
+    def get_shared(self, token: str) -> dict | None:
+        if not token:
+            return None
+        row = self._db.execute(
+            "SELECT title, icon, body, updated_at FROM pages WHERE share_token = ?", (token,)
+        ).fetchone()
+        return dict(row) if row else None
 
     def get_comment(self, comment_id: int) -> dict | None:
         row = self._db.execute("SELECT * FROM comments WHERE id = ?", (comment_id,)).fetchone()
