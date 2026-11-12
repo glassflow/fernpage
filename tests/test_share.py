@@ -301,6 +301,70 @@ def test_other_routes_do_not_get_the_share_headers(client):
         assert res.headers.get("cache-control") != "no-store", path
 
 
+def test_headers_survive_a_reverse_proxy_root_path():
+    # `uvicorn --root-path /prefix` puts the prefix in scope["root_path"] and (in current
+    # uvicorn) in scope["path"] too, so the middleware sees "/prefix/s/<token>".
+    seen = []
+    app = create_app(Store())
+
+    @app.middleware("http")
+    async def spy(request, call_next):
+        seen.append((request.scope["root_path"], request.url.path))
+        return await call_next(request)
+
+    client = TestClient(app, root_path="/prefix")
+    page = client.post("/prefix/api/pages", json={"title": "Ideas"}).json()
+    token = client.post(f"/prefix/api/pages/{page['id']}/share").json()["token"]
+    for path in (f"/s/{token}", f"/api/shared/{token}", "/s/nope", "/api/shared/nope"):
+        seen.clear()
+        res = client.get(f"/prefix{path}")
+        assert res.status_code in (200, 404), path
+        assert seen == [("/prefix", f"/prefix{path}")], seen  # the prefix really is in the path
+        assert_share_headers(res)
+    # a server that leaves the prefix out of scope["path"] works too
+    assert_share_headers(client.get(f"/s/{token}"))
+    # a non-share route under the prefix gets no share headers
+    res = client.get("/prefix/api/pages")
+    assert res.status_code == 200
+    for name in ("content-security-policy", "x-robots-tag", "referrer-policy"):
+        assert name not in res.headers
+    assert res.headers.get("cache-control") != "no-store"
+
+
+def test_unhandled_errors_carry_the_share_headers(monkeypatch):
+    store = Store()
+    client = TestClient(create_app(store), raise_server_exceptions=False)
+    page = make(client, title="Ideas")
+    token = share(client, page["id"])
+
+    def locked(token):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(store, "get_shared", locked)
+    for path in (f"/s/{token}", f"/api/shared/{token}"):
+        res = client.get(path)
+        assert res.status_code == 500, path
+        assert res.text == "Internal Server Error"
+        assert_share_headers(res)
+        for name in SHARE_HEADERS:
+            assert len(res.headers.get_list(name)) == 1, (path, name)
+
+    # a non-share route keeps the plain 500, without the share headers
+    def broken():
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(store, "tree", broken)
+    res = client.get("/api/pages")
+    assert res.status_code == 500
+    assert res.text == "Internal Server Error"
+    for name in ("content-security-policy", "x-robots-tag", "referrer-policy"):
+        assert name not in res.headers
+    assert res.headers.get("cache-control") != "no-store"
+
+    # HTTPException responses are not swallowed by the catch-all handler
+    assert client.get("/api/pages/9999").status_code == 404
+
+
 OLD_PAGES = """
     CREATE TABLE pages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
