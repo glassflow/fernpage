@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -12,6 +12,11 @@ from app.sample import seed
 from app.store import Store
 
 STATIC = Path(__file__).parent / "static"
+PRIVATE_HEADERS = {
+    "Cache-Control": "no-store",
+    "X-Robots-Tag": "noindex",
+    "Referrer-Policy": "no-referrer",
+}
 
 
 class PageIn(BaseModel):
@@ -82,6 +87,28 @@ def create_app(store: Store | None = None) -> FastAPI:
     def delete(page_id: int):
         if not store.delete(page_id):
             raise HTTPException(status_code=404, detail="no such page")
+
+    @app.post("/api/pages/{page_id}/share")
+    def share(page_id: int):
+        token = store.share(page_id)
+        if token is None:
+            raise HTTPException(status_code=404, detail="no such page")
+        return {"token": token, "url": f"/s/{token}"}
+
+    @app.delete("/api/pages/{page_id}/share", status_code=204)
+    def unshare(page_id: int):
+        if not store.unshare(page_id):
+            raise HTTPException(status_code=404, detail="no such page")
+
+    @app.get("/api/shared/{token}")
+    def shared(token: str, response: Response):
+        page = store.get_shared(token)
+        if page is None:
+            raise HTTPException(
+                status_code=404, detail="no such shared page", headers=PRIVATE_HEADERS
+            )
+        response.headers.update(PRIVATE_HEADERS)
+        return page
 
     @app.get("/api/search")
     def search(q: str = ""):
