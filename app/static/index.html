@@ -33,11 +33,12 @@
         <div class="actions">
           <button id="comment-count" class="comment-count" title="Open comments" aria-label="Open comments" hidden></button>
           <button id="favorite" class="star" title="Favourite">☆</button>
-          <button id="share" title="Share a public link">Share</button>
+          <button id="share" title="Share a public link" aria-controls="share-panel" aria-expanded="false">Share</button>
           <button id="mode" title="Switch between writing and reading">Edit</button>
           <button id="delete" class="danger" title="Delete page">Delete</button>
         </div>
       </header>
+      <p id="share-error" class="share-error" role="alert" hidden></p>
       <div id="share-panel" class="share-panel" hidden>
         <p>Anyone with this link can read this page.</p>
         <input id="share-url" readonly aria-label="Public link">
