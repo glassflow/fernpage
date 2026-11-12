@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.store
-from app.main import SHARE_HEADERS, create_app
+from app.main import SHARE_HEADERS, _route_path, create_app
 from app.store import Store
 
 PRIVATE = {
@@ -329,6 +329,46 @@ def test_headers_survive_a_reverse_proxy_root_path():
     for name in ("content-security-policy", "x-robots-tag", "referrer-policy"):
         assert name not in res.headers
     assert res.headers.get("cache-control") != "no-store"
+
+
+@pytest.mark.parametrize(
+    ("root_path", "path"),
+    [
+        ("/app", "/appx/s/x"),  # not a path-segment boundary: prefix is not stripped
+        ("/app/", "/app//s/x"),  # trailing slash in root_path: only one "/" is left over
+        ("/app", "/app"),  # path equals root_path (length branch)
+        ("/app", "/s/x"),  # the server left the prefix out of scope["path"]
+        ("/app", "/app/s/x"),
+        ("", "/s/x"),
+    ],
+)
+def test_route_path_matches_starlette(root_path, path):
+    from starlette._utils import get_route_path
+
+    scope = {"path": path, "root_path": root_path}
+    assert _route_path(scope) == get_route_path(scope)
+
+
+def test_headers_with_a_trailing_slash_root_path():
+    # `uvicorn --root-path /app/` gives scope["path"] == "/app//s/<token>", which Starlette
+    # routes as "/s/<token>"; the share headers must follow the router's view of the path.
+    seen = []
+    app = create_app(Store())
+
+    @app.middleware("http")
+    async def spy(request, call_next):
+        seen.append((request.scope["root_path"], request.url.path))
+        return await call_next(request)
+
+    client = TestClient(app, root_path="/app/")
+    page = client.post("/app//api/pages", json={"title": "Ideas"}).json()
+    token = client.post(f"/app//api/pages/{page['id']}/share").json()["token"]
+    for path in (f"/s/{token}", f"/api/shared/{token}"):
+        seen.clear()
+        res = client.get(f"/app/{path}")
+        assert seen == [("/app/", f"/app/{path}")], seen  # the double slash really arrives
+        assert res.status_code == 200, path
+        assert_share_headers(res)
 
 
 def test_unhandled_errors_carry_the_share_headers(monkeypatch):

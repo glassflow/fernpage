@@ -40,11 +40,12 @@ SHARE_HEADERS = {
 def _route_path(scope) -> str:
     """The request path without the ASGI root_path (a reverse-proxy prefix).
 
-    Depending on the server, scope["path"] may or may not already include the prefix, so the
-    prefix is only stripped when it is there, on a path-segment boundary.
+    Mirrors starlette._utils.get_route_path, which is what the router matches against: the
+    prefix is stripped only when scope["path"] starts with it, on a path-segment boundary. The
+    root_path is taken as is, so "/app/" with "/app//s/x" routes as "/s/x" and not "//s/x".
     """
     path = scope["path"]
-    root = scope.get("root_path", "").rstrip("/")
+    root = scope.get("root_path", "")
     if root and path.startswith(root) and (len(path) == len(root) or path[len(root)] == "/"):
         return path[len(root) :]
     return path
