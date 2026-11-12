@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -35,6 +35,20 @@ SHARE_HEADERS = {
         "default-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'"
     ),
 }
+
+
+def _route_path(scope) -> str:
+    """The request path without the ASGI root_path (a reverse-proxy prefix).
+
+    Mirrors starlette._utils.get_route_path, which is what the router matches against: the
+    prefix is stripped only when scope["path"] starts with it, on a path-segment boundary. The
+    root_path is taken as is, so "/app/" with "/app//s/x" routes as "/s/x" and not "//s/x".
+    """
+    path = scope["path"]
+    root = scope.get("root_path", "")
+    if root and path.startswith(root) and (len(path) == len(root) or path[len(root)] == "/"):
+        return path[len(root) :]
+    return path
 
 
 def _is_share_path(path: str) -> bool:
@@ -77,7 +91,16 @@ def create_app(store: Store | None = None) -> FastAPI:
     @app.middleware("http")
     async def share_headers(request: Request, call_next):
         response = await call_next(request)
-        if _is_share_path(request.url.path):
+        if _is_share_path(_route_path(request.scope)):
+            response.headers.update(SHARE_HEADERS)
+        return response
+
+    # Starlette's ServerErrorMiddleware sits outside the middleware above, so an unhandled
+    # exception would otherwise lose the share headers. HTTPException keeps its own handler.
+    @app.exception_handler(Exception)
+    async def server_error(request: Request, exc: Exception):
+        response = PlainTextResponse("Internal Server Error", status_code=500)
+        if _is_share_path(_route_path(request.scope)):
             response.headers.update(SHARE_HEADERS)
         return response
 
