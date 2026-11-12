@@ -171,3 +171,67 @@ def test_old_database_is_migrated(tmp_path):
     assert again.get(1)["title"] == "Old"
     assert again.share(1) == token
     assert again.get_shared(token)["body"] == "kept"
+
+
+def test_share_token_is_unique_in_the_database():
+    store = Store()
+    a = store.create(title="A")
+    b = store.create(title="B")
+    token = store.share(a["id"])
+    with pytest.raises(sqlite3.IntegrityError):
+        store._db.execute("UPDATE pages SET share_token = ? WHERE id = ?", (token, b["id"]))
+
+
+def test_get_shared_with_an_empty_token_is_none():
+    store = Store()
+    assert store.get_shared("") is None
+    page = store.create(title="A")
+    store.share(page["id"])
+    assert store.get_shared("") is None
+    # a row that somehow holds an empty token must still never be served
+    other = store.create(title="B")
+    store._db.execute("UPDATE pages SET share_token = '' WHERE id = ?", (other["id"],))
+    store._db.commit()
+    assert store.get_shared("") is None
+
+
+def assert_share_headers(res):
+    for name, value in PRIVATE.items():
+        assert res.headers[name] == value
+    assert "default-src 'self'" in res.headers["content-security-policy"]
+
+
+def test_public_page_opens_for_a_valid_token(client):
+    page = make(client, title="Ideas")
+    token = share(client, page["id"])
+    res = client.get(f"/s/{token}")
+    assert res.status_code == 200
+    assert "share.js" in res.text
+    assert_share_headers(res)
+
+
+def test_public_page_for_a_bogus_token_is_404(client):
+    res = client.get("/s/bogus")
+    assert res.status_code == 404
+    assert "doesn't work" in res.text
+    assert_share_headers(res)
+
+
+def test_public_page_is_404_after_unshare(client):
+    page = make(client, title="Ideas")
+    token = share(client, page["id"])
+    assert client.delete(f"/api/pages/{page['id']}/share").status_code == 204
+    res = client.get(f"/s/{token}")
+    assert res.status_code == 404
+    assert_share_headers(res)
+
+
+def test_share_html_is_served_statically(client):
+    assert client.get("/static/share.html").status_code == 200
+
+
+def test_shared_api_carries_the_csp_too(client):
+    page = make(client, title="Ideas")
+    token = share(client, page["id"])
+    assert_share_headers(client.get(f"/api/shared/{token}"))
+    assert_share_headers(client.get("/api/shared/nope"))

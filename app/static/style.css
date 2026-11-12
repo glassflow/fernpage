@@ -205,6 +205,14 @@ button.link:hover { background: none; color: var(--danger); }
 #resolved { margin-top: 16px; }
 #resolved summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-bottom: 8px; }
 
+/* shared page */
+body.shared { display: block; }
+body.shared main { margin: 0 auto; padding: 48px 16px; }
+body.shared h1.title { margin: 0; font-size: 32px; line-height: 1.2; overflow-wrap: anywhere; }
+body.shared .icon { line-height: 1; }
+body.shared .markdown { overflow-wrap: anywhere; }
+body.shared .markdown pre { overflow-x: auto; }
+
 @media (max-width: 720px) {
   body { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
