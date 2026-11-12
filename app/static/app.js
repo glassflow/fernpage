@@ -87,6 +87,7 @@ async function open(id) {
     return [a, sep];
   }));
   setMode(current.body.trim() ? "read" : "write");
+  loadComments();
   await loadTree();
 }
 
@@ -117,6 +118,78 @@ async function newPage(parentId = null) {
   await open(page.id);
   setMode("write");
   $("title").focus();
+}
+
+// ── comments ──
+const AUTHOR_KEY = "fernpage.author";
+
+function getAuthor() {
+  try { return localStorage.getItem(AUTHOR_KEY) || ""; } catch { return ""; }
+}
+
+function setAuthor(name) {
+  try { localStorage.setItem(AUTHOR_KEY, name); } catch { /* storage unavailable */ }
+}
+
+function when(iso) {
+  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+function commentBody(text) {
+  const div = document.createElement("div");
+  div.className = "comment-body";
+  div.innerHTML = window.renderMarkdown(text);
+  div.querySelectorAll("input[type=checkbox]").forEach((box) => { box.disabled = true; });
+  return div;
+}
+
+function commentEl(c) {
+  const div = document.createElement("div");
+  div.className = "comment";
+  div.dataset.id = c.id;
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = c.author + " · " + when(c.created_at);
+  div.append(meta, commentBody(c.body));
+  return div;
+}
+
+// T4 and T5 add their buttons here, where each thread is built
+function threadEl(t) {
+  const div = document.createElement("div");
+  div.className = "thread";
+  div.dataset.id = t.id;
+  const replies = document.createElement("div");
+  replies.className = "replies";
+  replies.append(...t.replies.map(commentEl));
+  div.append(commentEl(t), replies);
+  return div;
+}
+
+function showCommentError(e) {
+  const p = $("comments-error");
+  p.textContent = "Comments: " + e.message;
+  p.hidden = false;
+}
+
+async function loadComments() {
+  const pageId = current && current.id;
+  if (!pageId) return;
+  let data;
+  try {
+    data = await api("GET", "/api/pages/" + pageId + "/comments");
+  } catch (e) {
+    showCommentError(e);
+    return;
+  }
+  if (!current || current.id !== pageId) return; // we have left that page
+  const openThreads = data.threads.filter((t) => !t.resolved);
+  const done = data.threads.filter((t) => t.resolved);
+  $("threads").replaceChildren(...openThreads.map(threadEl));
+  $("resolved-threads").replaceChildren(...done.map(threadEl));
+  $("resolved-summary").textContent = done.length + " resolved";
+  $("resolved").hidden = done.length === 0;
+  $("comments-error").hidden = true;
 }
 
 // ── search ──
@@ -169,6 +242,28 @@ $("view").addEventListener("change", (e) => {
   lines[i] = lines[i].replace(/\[( |x)\]/i, e.target.checked ? "[x]" : "[ ]");
   save({ body: lines.join("\n") });
   e.target.closest("li").classList.toggle("done", e.target.checked);
+});
+$("author").value = getAuthor();
+$("new-comment").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = $("comment-body").value;
+  if (!body.trim() || !current) return;
+  const author = $("author").value.trim();
+  setAuthor(author);
+  try {
+    await api("POST", "/api/pages/" + current.id + "/comments", { body, author });
+  } catch (err) {
+    showCommentError(err);
+    return;
+  }
+  $("comment-body").value = "";
+  await loadComments();
+});
+$("comments").addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && e.target.tagName === "TEXTAREA") {
+    e.preventDefault();
+    e.target.form.requestSubmit();
+  }
 });
 $("new-page").onclick = () => newPage();
 window.addEventListener("hashchange", () => {
