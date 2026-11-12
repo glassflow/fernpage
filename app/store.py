@@ -79,14 +79,26 @@ class Store:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys = ON")
         self._db.executescript(SCHEMA)
-        cols = [r[1] for r in self._db.execute("PRAGMA table_info(pages)")]
-        if "share_token" not in cols:
-            self._db.execute("ALTER TABLE pages ADD COLUMN share_token TEXT")
+        self._add_share_token_column()
         self._db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS pages_share_token ON pages(share_token)"
         )
         self._db.commit()
         self._lock = threading.Lock()
+
+    def _has_share_token(self) -> bool:
+        return any(r[1] == "share_token" for r in self._db.execute("PRAGMA table_info(pages)"))
+
+    def _add_share_token_column(self) -> None:
+        """Migrate an old database. Another process may add the column between our check
+        and our ALTER; that is fine as long as the column is there afterwards."""
+        if self._has_share_token():
+            return
+        try:
+            self._db.execute("ALTER TABLE pages ADD COLUMN share_token TEXT")
+        except sqlite3.OperationalError:
+            if not self._has_share_token():
+                raise
 
     @staticmethod
     def _row(row: sqlite3.Row | None) -> dict | None:

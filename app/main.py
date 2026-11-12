@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -23,6 +23,22 @@ NOT_FOUND_HTML = (
     "<p class=\"empty\">This link doesn't work. It may have been turned off.</p>"
     "</main></body></html>"
 )
+
+
+# Sent on every response under /s and /api/shared (set by a middleware, so redirects,
+# 404s and 405s carry them too).
+SHARE_HEADERS = {
+    "Cache-Control": "no-store",
+    "X-Robots-Tag": "noindex",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": (
+        "default-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'"
+    ),
+}
+
+
+def _is_share_path(path: str) -> bool:
+    return any(path == base or path.startswith(base + "/") for base in ("/s", "/api/shared"))
 
 
 class PageIn(BaseModel):
@@ -55,17 +71,15 @@ def create_app(store: Store | None = None) -> FastAPI:
         if store.count() == 0:
             seed(store)
 
-    SHARE_HEADERS = {
-        "Cache-Control": "no-store",
-        "X-Robots-Tag": "noindex",
-        "Referrer-Policy": "no-referrer",
-        "Content-Security-Policy": (
-            "default-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'"
-        ),
-    }
-
     app = FastAPI(title="Fernpage")
     app.state.store = store
+
+    @app.middleware("http")
+    async def share_headers(request: Request, call_next):
+        response = await call_next(request)
+        if _is_share_path(request.url.path):
+            response.headers.update(SHARE_HEADERS)
+        return response
 
     def page_or_404(page_id: int) -> dict:
         page = store.get(page_id)
@@ -116,20 +130,17 @@ def create_app(store: Store | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="no such page")
 
     @app.get("/api/shared/{token}")
-    def shared(token: str, response: Response):
+    def shared(token: str):
         page = store.get_shared(token)
         if page is None:
-            raise HTTPException(
-                status_code=404, detail="no such shared page", headers=SHARE_HEADERS
-            )
-        response.headers.update(SHARE_HEADERS)
+            raise HTTPException(status_code=404, detail="no such shared page")
         return page
 
     @app.get("/s/{token}", include_in_schema=False)
     def share_page(token: str):
         if store.get_shared(token) is None:
-            return HTMLResponse(NOT_FOUND_HTML, status_code=404, headers=SHARE_HEADERS)
-        return FileResponse(STATIC / "share.html", headers=SHARE_HEADERS)
+            return HTMLResponse(NOT_FOUND_HTML, status_code=404)
+        return FileResponse(STATIC / "share.html")
 
     @app.get("/api/search")
     def search(q: str = ""):

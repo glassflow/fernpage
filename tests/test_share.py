@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.store
-from app.main import create_app
+from app.main import SHARE_HEADERS, create_app
 from app.store import Store
 
 PRIVATE = {
@@ -195,10 +195,16 @@ def test_get_shared_with_an_empty_token_is_none():
     assert store.get_shared("") is None
 
 
+CSP = "default-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'"
+
+
 def assert_share_headers(res):
+    for name, value in SHARE_HEADERS.items():
+        assert res.headers[name] == value
     for name, value in PRIVATE.items():
         assert res.headers[name] == value
-    assert "default-src 'self'" in res.headers["content-security-policy"]
+    # the literal policy, so quietly weakening the constant fails here
+    assert res.headers["content-security-policy"] == CSP
 
 
 def test_public_page_opens_for_a_valid_token(client):
@@ -235,3 +241,152 @@ def test_shared_api_carries_the_csp_too(client):
     token = share(client, page["id"])
     assert_share_headers(client.get(f"/api/shared/{token}"))
     assert_share_headers(client.get("/api/shared/nope"))
+
+
+def test_headers_on_the_trailing_slash_redirect(client):
+    page = make(client, title="Ideas")
+    token = share(client, page["id"])
+    res = client.get(f"/s/{token}/", follow_redirects=False)
+    assert res.status_code == 307
+    assert res.headers["location"].endswith(f"/s/{token}")
+    assert_share_headers(res)
+
+
+def test_headers_on_odd_share_paths(client):
+    page = make(client, title="Ideas")
+    token = share(client, page["id"])
+    for path in (
+        f"/s/{token}/x",
+        "/s/a%2Fb",
+        "/s/",
+        "/s",
+        "/api/shared",
+        "/api/shared/",
+        "/api/shared/nope/extra",
+    ):
+        res = client.get(path, follow_redirects=False)
+        assert res.status_code in (307, 404), path
+        assert_share_headers(res)
+
+
+def test_headers_on_wrong_methods(client):
+    page = make(client, title="Ideas")
+    token = share(client, page["id"])
+    for method, path in (
+        ("HEAD", f"/s/{token}"),
+        ("HEAD", f"/api/shared/{token}"),
+        ("POST", f"/s/{token}"),
+        ("DELETE", f"/api/shared/{token}"),
+    ):
+        res = client.request(method, path)
+        assert res.status_code == 405, (method, path)
+        assert_share_headers(res)
+
+
+def test_handlers_do_not_duplicate_the_headers(client):
+    page = make(client, title="Ideas")
+    token = share(client, page["id"])
+    for path in (f"/s/{token}", "/s/nope", f"/api/shared/{token}", "/api/shared/nope"):
+        res = client.get(path)
+        for name in SHARE_HEADERS:
+            assert len(res.headers.get_list(name)) == 1, (path, name)
+
+
+def test_other_routes_do_not_get_the_share_headers(client):
+    make(client, title="Ideas")
+    for path in ("/api/pages", "/", "/static/style.css", "/s2", "/api/sharedx"):
+        res = client.get(path)
+        for name in ("content-security-policy", "x-robots-tag", "referrer-policy"):
+            assert name not in res.headers, (path, name)
+        assert res.headers.get("cache-control") != "no-store", path
+
+
+OLD_PAGES = """
+    CREATE TABLE pages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        parent_id INTEGER REFERENCES pages(id) ON DELETE CASCADE,
+        title TEXT NOT NULL DEFAULT '',
+        icon TEXT NOT NULL DEFAULT '',
+        body TEXT NOT NULL DEFAULT '',
+        favorite INTEGER NOT NULL DEFAULT 0,
+        position INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+"""
+
+
+def old_db(path):
+    con = sqlite3.connect(path)
+    con.executescript(OLD_PAGES)
+    con.commit()
+    con.close()
+    return str(path)
+
+
+def test_empty_old_schema_database_opens_and_shares(tmp_path):
+    store = Store(old_db(tmp_path / "old.db"))
+    page = store.create(title="New")
+    assert store.share(page["id"])
+
+
+class RacingConnection:
+    """Thin proxy (sqlite3.Connection.execute is a C method, so it cannot be patched on the
+    instance). It reports the column as missing the first time it is asked, and lets a
+    rival process add the column before our own ALTER runs."""
+
+    def __init__(self, real, path, connect, alter_error=None):
+        self._real = real
+        self._path = path
+        self._connect = connect
+        self._alter_error = alter_error
+        self._seen = False
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    def __setattr__(self, name, value):
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self._real, name, value)
+
+    def execute(self, sql, *args):
+        if sql.startswith("PRAGMA table_info(pages)") and not self._seen:
+            self._seen = True
+            rows = self._real.execute(sql, *args).fetchall()
+            assert all(r[1] != "share_token" for r in rows)
+            if self._alter_error is None:
+                rival = self._connect(self._path)
+                rival.execute("ALTER TABLE pages ADD COLUMN share_token TEXT")
+                rival.commit()
+                rival.close()
+            return iter(rows)
+        if sql.startswith("ALTER TABLE") and self._alter_error is not None:
+            raise self._alter_error
+        return self._real.execute(sql, *args)
+
+
+def patch_connect(monkeypatch, path, alter_error=None):
+    real_connect = sqlite3.connect
+
+    def connect(*a, **kw):
+        return RacingConnection(real_connect(*a, **kw), path, real_connect, alter_error)
+
+    monkeypatch.setattr(app.store.sqlite3, "connect", connect)
+
+
+def test_migration_survives_another_process_adding_the_column(tmp_path, monkeypatch):
+    path = old_db(tmp_path / "race.db")
+    patch_connect(monkeypatch, path)
+    store = Store(path)
+    page = store.create(title="Raced")
+    token = store.share(page["id"])
+    assert store.get_shared(token)["title"] == "Raced"
+
+
+def test_migration_error_is_raised_when_the_column_is_still_missing(tmp_path, monkeypatch):
+    path = old_db(tmp_path / "boom.db")
+    patch_connect(monkeypatch, path, alter_error=sqlite3.OperationalError("boom"))
+    with pytest.raises(sqlite3.OperationalError, match="boom"):
+        Store(path)

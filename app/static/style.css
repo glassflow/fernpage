@@ -221,7 +221,8 @@ button.link:hover { background: none; color: var(--danger); }
 body.shared { display: block; }
 body.shared main { margin: 0 auto; padding: 48px 16px; }
 body.shared h1.title { margin: 0; font-size: 32px; line-height: 1.2; overflow-wrap: anywhere; }
-body.shared .icon { line-height: 1; }
+body.shared .page-head { align-items: flex-start; }
+body.shared .icon { line-height: 1.2; }
 body.shared .markdown { overflow-wrap: anywhere; }
 body.shared .markdown pre { overflow-x: auto; }
 
