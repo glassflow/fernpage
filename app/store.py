@@ -17,13 +17,58 @@ CREATE TABLE IF NOT EXISTS pages (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS pages_parent ON pages(parent_id);
+CREATE TABLE IF NOT EXISTS comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    page_id INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+    parent_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
+    author TEXT NOT NULL DEFAULT 'Anonymous',
+    body TEXT NOT NULL,
+    resolved_at TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS comments_page ON comments(page_id);
+CREATE INDEX IF NOT EXISTS comments_parent ON comments(parent_id);
 """
 
 FIELDS = ("title", "icon", "body", "favorite", "parent_id")
+MAX_COMMENT = 10000
+MAX_AUTHOR = 80
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _clean(body: str, author: str) -> tuple[str, str]:
+    if body.strip() == "":
+        raise ValueError("a comment needs some text")
+    if len(body) > MAX_COMMENT:
+        raise ValueError(f"a comment can be at most {MAX_COMMENT} characters")
+    return body, author.strip()[:MAX_AUTHOR] or "Anonymous"
+
+
+def _reply(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "page_id": row["page_id"],
+        "parent_id": row["parent_id"],
+        "author": row["author"],
+        "body": row["body"],
+        "created_at": row["created_at"],
+    }
+
+
+def _thread(row: sqlite3.Row, replies: list[dict]) -> dict:
+    return {
+        "id": row["id"],
+        "page_id": row["page_id"],
+        "author": row["author"],
+        "body": row["body"],
+        "created_at": row["created_at"],
+        "resolved": row["resolved_at"] is not None,
+        "resolved_at": row["resolved_at"],
+        "replies": replies,
+    }
 
 
 class Store:
@@ -47,7 +92,10 @@ class Store:
 
     def get(self, page_id: int) -> dict | None:
         row = self._db.execute("SELECT * FROM pages WHERE id = ?", (page_id,)).fetchone()
-        return self._row(row)
+        page = self._row(row)
+        if page is not None:
+            page["open_comments"] = self.open_comment_count(page_id)
+        return page
 
     def create(self, title: str = "", body: str = "", icon: str = "",
                parent_id: int | None = None) -> dict:
@@ -99,6 +147,110 @@ class Store:
             cur = self._db.execute("DELETE FROM pages WHERE id = ?", (page_id,))
             self._db.commit()
         return cur.rowcount > 0
+
+    def get_comment(self, comment_id: int) -> dict | None:
+        row = self._db.execute("SELECT * FROM comments WHERE id = ?", (comment_id,)).fetchone()
+        return dict(row) if row else None
+
+    def comments(self, page_id: int) -> list[dict]:
+        threads = self._db.execute(
+            "SELECT * FROM comments WHERE page_id = ? AND parent_id IS NULL"
+            " ORDER BY created_at, id",
+            (page_id,),
+        ).fetchall()
+        replies = self._db.execute(
+            "SELECT * FROM comments WHERE page_id = ? AND parent_id IS NOT NULL"
+            " ORDER BY created_at, id",
+            (page_id,),
+        ).fetchall()
+        by_thread: dict[int, list[dict]] = {}
+        for r in replies:
+            by_thread.setdefault(r["parent_id"], []).append(_reply(r))
+        return [_thread(t, by_thread.get(t["id"], [])) for t in threads]
+
+    def thread(self, comment_id: int) -> dict | None:
+        row = self._db.execute(
+            "SELECT * FROM comments WHERE id = ? AND parent_id IS NULL", (comment_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        replies = self._db.execute(
+            "SELECT * FROM comments WHERE parent_id = ? ORDER BY created_at, id", (comment_id,)
+        ).fetchall()
+        return _thread(row, [_reply(r) for r in replies])
+
+    def add_comment(self, page_id: int, body: str, author: str = "") -> dict:
+        body, author = _clean(body, author)
+        with self._lock:
+            if self._db.execute("SELECT 1 FROM pages WHERE id = ?", (page_id,)).fetchone() is None:
+                raise KeyError(page_id)
+            try:
+                cur = self._db.execute(
+                    "INSERT INTO comments (page_id, author, body, created_at) VALUES (?, ?, ?, ?)",
+                    (page_id, author, body, _now()),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise KeyError(page_id) from exc
+            self._db.commit()
+        return self.thread(cur.lastrowid)
+
+    def add_reply(self, comment_id: int, body: str, author: str = "") -> dict:
+        body, author = _clean(body, author)
+        with self._lock:
+            parent = self._db.execute(
+                "SELECT * FROM comments WHERE id = ?", (comment_id,)
+            ).fetchone()
+            if parent is None:
+                raise KeyError(comment_id)
+            if parent["parent_id"] is not None:
+                raise ValueError("replies are one level deep")
+            try:
+                cur = self._db.execute(
+                    "INSERT INTO comments (page_id, parent_id, author, body, created_at)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (parent["page_id"], comment_id, author, body, _now()),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise KeyError(comment_id) from exc
+            self._db.commit()
+            row = self._db.execute(
+                "SELECT * FROM comments WHERE id = ?", (cur.lastrowid,)
+            ).fetchone()
+        return _reply(row)
+
+    def set_resolved(self, comment_id: int, resolved: bool) -> dict | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT parent_id FROM comments WHERE id = ?", (comment_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            if row["parent_id"] is not None:
+                raise ValueError("only a thread can be resolved")
+            if resolved:
+                self._db.execute(
+                    "UPDATE comments SET resolved_at = ? WHERE id = ? AND resolved_at IS NULL",
+                    (_now(), comment_id),
+                )
+            else:
+                self._db.execute(
+                    "UPDATE comments SET resolved_at = NULL WHERE id = ?", (comment_id,)
+                )
+            self._db.commit()
+        return self.thread(comment_id)
+
+    def delete_comment(self, comment_id: int) -> bool:
+        with self._lock:
+            cur = self._db.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
+            self._db.commit()
+        return cur.rowcount > 0
+
+    def open_comment_count(self, page_id: int) -> int:
+        return self._db.execute(
+            "SELECT COUNT(*) FROM comments"
+            " WHERE page_id = ? AND parent_id IS NULL AND resolved_at IS NULL",
+            (page_id,),
+        ).fetchone()[0]
 
     def tree(self) -> list[dict]:
         rows = self._db.execute(
