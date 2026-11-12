@@ -31,6 +31,16 @@ uv run ruff check .
   renderer that escapes everything first.
 - `app/sample.py`: the pages a new workspace starts with.
 
+## Sharing
+
+**Share** on a page makes a read-only link at `/s/<token>`; **Copy link** copies it. **Turn off
+link** kills it, and sharing the page again makes a new link. The routes are `POST` and
+`DELETE /api/pages/{id}/share` and `GET /api/shared/{token}` (what the public page reads).
+
+Fernpage has no accounts, so anyone who can reach the server can also edit every page. To share
+links with people outside, expose only `/s/*`, `/api/shared/*` and `/static/*` publicly, for
+example through a proxy, and keep the rest private.
+
 ## Build a feature with the Tares factory
 
 You need Claude Code (signed in), `gh` (signed in, with write access to your copy of this repo)
@@ -72,7 +82,6 @@ and `uv`.
 ## Roadmap
 
 - **Comments on pages** (done): a thread under each page, reply, resolve a thread when it is done.
-- **Share a page with a public link**: read-only, can be turned off again.
 - **Page templates**: start a page from a template, save any page as one.
 - **Trash, with restore**: deleted pages wait in Trash for 30 days.
 - **Mentions**: `@name` in a page or comment.

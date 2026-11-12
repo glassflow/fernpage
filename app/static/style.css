@@ -128,6 +128,29 @@ main { padding: 48px 64px; max-width: 860px; width: 100%; }
   min-width: 0;
 }
 .actions { display: flex; gap: 6px; }
+.share-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  margin: -8px 0 16px;
+}
+.share-panel p { flex-basis: 100%; margin: 0 0 4px; color: var(--muted); font-size: 13px; }
+.share-panel input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+}
+#share.on { color: var(--accent); }
 .comment-count { color: var(--muted); }
 .star.on { color: #c9962b; }
 .danger { color: var(--danger); }
