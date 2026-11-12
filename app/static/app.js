@@ -79,7 +79,8 @@ async function open(id) {
   $("favorite").textContent = current.favorite ? "★" : "☆";
   $("favorite").classList.toggle("on", current.favorite);
   $("saved").textContent = "Edited " + new Date(current.updated_at).toLocaleString();
-  $("share-panel").hidden = true;
+  clearShareError();
+  setPanel(false);
   showShare();
   $("crumbs").replaceChildren(...trail(current.id).slice(0, -1).flatMap((p) => {
     const a = document.createElement("a");
@@ -362,13 +363,43 @@ async function loadComments(snap = null) {
 }
 
 // ── sharing ──
-function shareUrl() { return location.origin + "/s/" + current.share_token; }
+// The link lives under the app's own path prefix (see --root-path): resolve it against the
+// editor's base path, not the origin. Search and hash are ignored.
+function shareUrl() {
+  const base = location.origin + location.pathname.replace(/\/+$/, "") + "/";
+  return base + "s/" + current.share_token;
+}
+
+// ids of pages with a share or turn-off request in flight: the lock follows the page, not the button
+const sharing = new Set();
+
+function syncShareButtons() {
+  const busy = !!current && sharing.has(current.id);
+  $("share").disabled = busy;
+  $("unshare").disabled = busy;
+}
+
+function setPanel(open) {
+  $("share-panel").hidden = !open;
+  $("share").setAttribute("aria-expanded", String(open));
+}
+
+function showShareError(message) {
+  $("share-error").textContent = message;
+  $("share-error").hidden = false;
+}
+
+function clearShareError() {
+  $("share-error").textContent = "";
+  $("share-error").hidden = true;
+}
 
 function showShare() {
   const on = !!(current && current.share_token);
   $("share").textContent = on ? "Shared" : "Share";
   $("share").classList.toggle("on", on);
   $("share-url").value = on ? shareUrl() : "";
+  syncShareButtons();
 }
 
 // Record a new token on the page the request was for, and on the open page if it is the same
@@ -380,54 +411,67 @@ function applyToken(page, token) {
   return true;
 }
 
-$("share").onclick = async () => {
+// Run a share or turn-off request for the open page. The token changes only when the server
+// said yes; a failure leaves the screen as it was and says so, but only on the page it is for.
+async function changeShare(method, token, failure, onDone) {
+  const page = current;
+  if (sharing.has(page.id)) return;
+  sharing.add(page.id);
+  syncShareButtons();
+  try {
+    const res = await api(method, "/api/pages/" + page.id + "/share");
+    if (applyToken(page, token(res))) onDone(); // false: we moved to another page
+  } catch {
+    if (current && current.id === page.id) showShareError(failure);
+  } finally {
+    sharing.delete(page.id);
+    syncShareButtons();
+  }
+}
+
+$("share").onclick = () => {
   if (!current) return;
+  clearShareError();
   if (current.share_token) {
-    $("share-panel").hidden = !$("share-panel").hidden;
+    setPanel($("share-panel").hidden);
     return;
   }
-  const page = current;
-  const button = $("share");
-  if (button.disabled) return;
-  button.disabled = true;
-  try {
-    const res = await api("POST", "/api/pages/" + page.id + "/share");
-    if (!applyToken(page, res.token)) return; // we moved to another page: do not show its panel
+  return changeShare("POST", (res) => res.token, "Couldn't turn on the link. Try again.", () => {
     showShare();
-    $("share-panel").hidden = false;
+    setPanel(true);
     $("share-url").select();
-  } finally {
-    button.disabled = false;
-  }
+  });
 };
 
 $("copy").onclick = async () => {
   if (!current || !current.share_token) return;
-  const url = shareUrl();
+  clearShareError();
+  const page = current;
+  let copied = false;
   try {
-    await navigator.clipboard.writeText(url);
+    await navigator.clipboard.writeText(shareUrl());
+    copied = true;
   } catch {
     $("share-url").select();
-    document.execCommand("copy");
+    try { copied = document.execCommand("copy") === true; } catch { copied = false; }
+  }
+  if (!copied) {
+    if (current && current.id === page.id) {
+      showShareError("Couldn't copy the link. It is selected: press Ctrl+C (Cmd+C on a Mac).");
+    }
+    return;
   }
   $("copy").textContent = "Copied";
   setTimeout(() => { $("copy").textContent = "Copy link"; }, 1500);
 };
 
-$("unshare").onclick = async () => {
+$("unshare").onclick = () => {
   if (!current) return;
-  const page = current;
-  const button = $("unshare");
-  if (button.disabled) return;
-  button.disabled = true;
-  try {
-    await api("DELETE", "/api/pages/" + page.id + "/share");
-    if (!applyToken(page, null)) return;
-    $("share-panel").hidden = true;
+  clearShareError();
+  return changeShare("DELETE", () => null, "Couldn't turn off the link. It is still on.", () => {
+    setPanel(false);
     showShare();
-  } finally {
-    button.disabled = false;
-  }
+  });
 };
 
 // ── search ──
@@ -470,7 +514,8 @@ $("delete").onclick = async () => {
   current = null;
   location.hash = "";
   $("page").hidden = true;
-  $("share-panel").hidden = true;
+  clearShareError();
+  setPanel(false);
   $("empty").hidden = false;
   loadTree();
 };

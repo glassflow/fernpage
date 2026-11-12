@@ -151,6 +151,7 @@ main { padding: 48px 64px; max-width: 860px; width: 100%; }
   color: var(--ink);
 }
 #share.on { color: var(--accent); }
+.share-error { color: var(--danger); font-size: 13px; margin: 0 0 8px; }
 .comment-count { color: var(--muted); }
 .star.on { color: #c9962b; }
 .danger { color: var(--danger); }
