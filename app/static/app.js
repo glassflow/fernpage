@@ -88,7 +88,7 @@ async function open(id) {
     return [a, sep];
   }));
   setMode(current.body.trim() ? "read" : "write");
-  clearComments();
+  clearComments(); // again: a late load for the page we just left may have filled the lists
   loadComments();
   await loadTree();
 }
@@ -217,7 +217,26 @@ function replyForm(t) {
   return form;
 }
 
-// T5 adds its buttons here, where each thread is built
+function resolveButton(t) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "resolve";
+  btn.textContent = t.resolved ? "Reopen" : "Resolve ✓";
+  btn.onclick = async () => {
+    if (!current || btn.disabled) return;
+    btn.disabled = true;
+    try {
+      await api("PATCH", "/api/comments/" + t.id, { resolved: !t.resolved });
+      await loadComments();
+    } catch (e) {
+      showCommentError(e);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+  return btn;
+}
+
 function threadEl(t) {
   const div = document.createElement("div");
   div.className = "thread";
@@ -227,6 +246,10 @@ function threadEl(t) {
   replies.append(...t.replies.map(commentEl));
   div.append(commentEl(t), replies);
   if (!t.resolved) div.append(replyForm(t));
+  const foot = document.createElement("div");
+  foot.className = "thread-foot";
+  foot.append(resolveButton(t));
+  div.append(foot);
   return div;
 }
 
@@ -241,6 +264,7 @@ function clearComments() {
   $("resolved-threads").replaceChildren();
   $("resolved").hidden = true;
   $("comments-error").hidden = true;
+  $("comment-count").hidden = true; // never show the previous page's count
 }
 
 async function loadComments() {
@@ -260,6 +284,9 @@ async function loadComments() {
   $("resolved-threads").replaceChildren(...done.map(threadEl));
   $("resolved-summary").textContent = done.length + " resolved";
   $("resolved").hidden = done.length === 0;
+  // the loaded thread list is the only source of the count
+  $("comment-count").textContent = "💬 " + openThreads.length;
+  $("comment-count").hidden = openThreads.length === 0;
   $("comments-error").hidden = true;
 }
 
@@ -339,6 +366,9 @@ $("comments").addEventListener("keydown", (e) => {
     e.target.form.requestSubmit();
   }
 });
+$("comment-count").onclick = () => {
+  $("comments").scrollIntoView({ behavior: "smooth", block: "start" });
+};
 $("new-page").onclick = () => newPage();
 window.addEventListener("hashchange", () => {
   const id = Number(location.hash.slice(1));

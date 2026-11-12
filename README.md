@@ -71,7 +71,7 @@ and `uv`.
 
 ## Roadmap
 
-- **Comments on pages**: a thread under each page, resolve a comment when it is done.
+- **Comments on pages** (done): a thread under each page, reply, resolve a thread when it is done.
 - **Share a page with a public link**: read-only, can be turned off again.
 - **Page templates**: start a page from a template, save any page as one.
 - **Trash, with restore**: deleted pages wait in Trash for 30 days.

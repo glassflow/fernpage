@@ -22,6 +22,7 @@ def test_index_has_comment_elements(client):
         "resolved",
         "resolved-threads",
         "comments-error",
+        "comment-count",
     ):
         assert f'id="{ident}"' in res.text
 
@@ -55,3 +56,23 @@ def test_app_js_guards_double_submit_and_stale_pages(client):
     assert js.count("once(") >= 3  # definition, new-comment form, reply form
     assert "if (current && current.id === pageId) showCommentError(e)" in js
     assert js.count("clearComments();") >= 2  # on switching pages, and when the new page is set
+
+
+def test_app_js_wires_resolve_reopen_and_count(client):
+    js = _app_js(client)
+    assert 'api("PATCH", "/api/comments/" + t.id, { resolved: !t.resolved })' in js
+    assert 't.resolved ? "Reopen" : "Resolve ✓"' in js
+    # the count comes from the loaded thread list, hides at zero, and is cleared on page switch
+    assert '$("comment-count").textContent = "💬 " + openThreads.length' in js
+    assert '$("comment-count").hidden = openThreads.length === 0' in js
+    assert 'current.open_comments' not in js
+    assert 'scrollIntoView({ behavior: "smooth", block: "start" })' in js
+    clear = js.split("function clearComments()")[1].split("\n}\n")[0]
+    assert '$("comment-count").hidden = true' in clear
+
+
+def test_hidden_rule_survives_and_count_sets_no_display(client):
+    css = client.get("/static/style.css").text
+    assert "[hidden] { display: none !important; }" in css
+    rule = css.split(".comment-count {")[1].split("}")[0]
+    assert "display" not in rule
