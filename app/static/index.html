@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fernpage</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">🌿 Fernpage</div>
+    <input id="search" type="search" placeholder="Search pages" autocomplete="off">
+    <ul id="results" class="results" hidden></ul>
+    <section id="favorites-section">
+      <h2>Favourites</h2>
+      <ul id="favorites" class="tree"></ul>
+    </section>
+    <section>
+      <h2>Pages</h2>
+      <ul id="tree" class="tree"></ul>
+    </section>
+    <button id="new-page" class="new-page">+ New page</button>
+  </aside>
+
+  <main id="main">
+    <div id="empty" class="empty">Pick a page on the left, or make a new one.</div>
+    <article id="page" hidden>
+      <nav id="crumbs" class="crumbs"></nav>
+      <header class="page-head">
+        <button id="icon" class="icon" title="Change icon"></button>
+        <input id="title" class="title" placeholder="Untitled">
+        <div class="actions">
+          <button id="favorite" class="star" title="Favourite">☆</button>
+          <button id="mode" title="Switch between writing and reading">Edit</button>
+          <button id="delete" class="danger" title="Delete page">Delete</button>
+        </div>
+      </header>
+      <div id="view" class="markdown"></div>
+      <textarea id="body" class="body" hidden placeholder="Write in markdown…"></textarea>
+      <footer id="saved" class="saved"></footer>
+    </article>
+  </main>
+
+  <script src="/static/markdown.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

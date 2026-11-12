@@ -1,0 +1,160 @@
+:root {
+  --bg: #fbfaf7;
+  --side: #f2f0ea;
+  --ink: #26251f;
+  --muted: #7a776c;
+  --line: #e2dfd5;
+  --hover: #e8e5dc;
+  --accent: #2f7d4f;
+  --danger: #b5432f;
+  --code: #efece4;
+  font-family: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1d1b;
+    --side: #232522;
+    --ink: #e8e6df;
+    --muted: #9a978c;
+    --line: #34362f;
+    --hover: #2e302b;
+    --accent: #6cc28f;
+    --danger: #e0806c;
+    --code: #2a2c28;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 264px 1fr;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+button:hover { background: var(--hover); }
+
+/* sidebar */
+.sidebar {
+  background: var(--side);
+  border-right: 1px solid var(--line);
+  padding: 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+.brand { font-weight: 650; padding: 0 8px; }
+.sidebar h2 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 0 8px 4px;
+}
+#search {
+  font: inherit;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: inherit;
+}
+.tree, .tree ul, .results { list-style: none; margin: 0; padding: 0; }
+.tree ul { padding-left: 14px; }
+.tree li { position: relative; }
+.tree a, .results a {
+  display: block;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree a:hover, .results a:hover { background: var(--hover); }
+.tree a.active { background: var(--hover); font-weight: 600; }
+.tree .add {
+  position: absolute;
+  right: 4px;
+  top: 2px;
+  border: none;
+  padding: 0 6px;
+  color: var(--muted);
+  visibility: hidden;
+}
+.tree li:hover > .add { visibility: visible; }
+.results small { display: block; color: var(--muted); padding: 0 8px 6px; font-size: 12px; }
+.results .none { color: var(--muted); padding: 4px 8px; }
+.new-page { margin-top: auto; text-align: left; border: none; color: var(--muted); }
+
+/* page */
+main { padding: 48px 64px; max-width: 860px; width: 100%; }
+.empty { color: var(--muted); margin-top: 20vh; text-align: center; }
+.crumbs { font-size: 13px; color: var(--muted); min-height: 18px; }
+.crumbs a { color: inherit; text-decoration: none; }
+.crumbs a:hover { text-decoration: underline; }
+.page-head { display: flex; align-items: center; gap: 10px; margin: 12px 0 20px; }
+.icon { font-size: 32px; border: none; padding: 0 4px; }
+.title {
+  flex: 1;
+  font: inherit;
+  font-size: 32px;
+  font-weight: 700;
+  border: none;
+  background: none;
+  color: inherit;
+  outline: none;
+  min-width: 0;
+}
+.actions { display: flex; gap: 6px; }
+.star.on { color: #c9962b; }
+.danger { color: var(--danger); }
+.body {
+  width: 100%;
+  min-height: 55vh;
+  font: 15px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--bg);
+  color: inherit;
+  resize: vertical;
+}
+.saved { color: var(--muted); font-size: 12px; margin-top: 24px; }
+
+.markdown { line-height: 1.65; font-size: 16px; }
+.markdown h2 { font-size: 22px; margin: 28px 0 8px; }
+.markdown h3 { font-size: 18px; margin: 22px 0 6px; }
+.markdown h4 { font-size: 16px; margin: 18px 0 6px; }
+.markdown code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 14px; }
+.markdown pre { background: var(--code); padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
+.markdown pre code { background: none; padding: 0; }
+.markdown blockquote { border-left: 3px solid var(--line); margin: 0; padding-left: 14px; color: var(--muted); }
+.markdown a { color: var(--accent); }
+.markdown li.task { list-style: none; margin-left: -22px; }
+.markdown li.task.done { color: var(--muted); text-decoration: line-through; }
+
+@media (max-width: 720px) {
+  body { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; }
+  main { padding: 24px 16px; }
+}
